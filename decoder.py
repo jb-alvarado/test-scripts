@@ -25,7 +25,7 @@ from threading import Thread
 class Decode(Thread):
     def __init__(self, input, width, height):
         Thread.__init__(self)
-        self.container = av.open(input, 'r')
+        self.input = av.open(input, 'r')
         self.w = width
         self.h = height
         self.v_fifo = deque()
@@ -38,12 +38,18 @@ class Decode(Thread):
         )
 
     def run(self):
-        for packed in self.container.demux():
-            if packed.stream.type == 'video':
-                for v_frame in packed.decode():
+        video_stream = next(
+            (s for s in self.input.streams if s.type == 'video'), None)
+        audio_stream = next(
+            (s for s in self.input.streams if s.type == 'audio'), None)
+
+        for packet in self.input.demux(
+                [s for s in (video_stream, audio_stream) if s]):
+            if packet.stream.type == 'video':
+                for v_frame in packet.decode():
                     new_frame = v_frame.reformat(self.w, self.h, 'rgb24')
                     self.v_fifo.appendleft(new_frame.planes[0])
-            if packed.stream.type == 'audio':
-                for a_frame in packed.decode():
+            if packet.stream.type == 'audio':
+                for a_frame in packet.decode():
                     a_sample = self.resampler.resample(a_frame)
                     self.a_fifo.appendleft(a_sample.planes[0])
