@@ -17,19 +17,20 @@
 
 
 import av
-from collections import deque
+from queue import Queue
 from threading import Thread
+
+V_FIFO = Queue(maxsize=300)
+A_FIFO = Queue(maxsize=300)
 
 
 # main decoding thread
 class Decode(Thread):
     def __init__(self, input, width, height):
         Thread.__init__(self)
-        self.input = av.open(input, 'r')
+        self.input = input
         self.w = width
         self.h = height
-        self.v_fifo = deque()
-        self.a_fifo = deque()
 
         self.resampler = av.AudioResampler(
             format=av.AudioFormat('s16'),
@@ -38,18 +39,17 @@ class Decode(Thread):
         )
 
     def run(self):
-        video_stream = next(
-            (s for s in self.input.streams if s.type == 'video'), None)
-        audio_stream = next(
-            (s for s in self.input.streams if s.type == 'audio'), None)
+        for input in self.input:
+            container = av.open(input, 'r')
 
-        for packet in self.input.demux(
-                [s for s in (video_stream, audio_stream) if s]):
-            if packet.stream.type == 'video':
-                for v_frame in packet.decode():
-                    new_frame = v_frame.reformat(self.w, self.h, 'rgb24')
-                    self.v_fifo.appendleft(new_frame.planes[0])
-            if packet.stream.type == 'audio':
-                for a_frame in packet.decode():
-                    a_sample = self.resampler.resample(a_frame)
-                    self.a_fifo.appendleft(a_sample.planes[0])
+            for packet in container.demux():
+                if packet.stream.type == 'video':
+                    for v_frame in packet.decode():
+                        v_frame.pts = None
+                        new_v_frame = v_frame.reformat(self.w, self.h, 'rgb24')
+                        V_FIFO.put(new_v_frame.planes[0])
+                if packet.stream.type == 'audio':
+                    for a_frame in packet.decode():
+                        a_frame.pts = None
+                        new_a_frame = self.resampler.resample(a_frame)
+                        A_FIFO.put(new_a_frame.planes[0])
