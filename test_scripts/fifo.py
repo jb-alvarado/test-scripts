@@ -4,20 +4,20 @@ import queue
 from threading import Thread
 from time import sleep
 
-FIFO = queue.Queue(maxsize=10)
-
 
 class Fill(Thread):
     def __init__(self):
         Thread.__init__(self)
+        self.fifo = queue.Queue(maxsize=10)
 
     def run(self):
-        for a in range(3):
-            for i in range(100):
-                FIFO.put([a, i])
-                sleep(0.009)
+        for i in range(100):
+            if i % 2 == 0:
+                a = i
 
-        FIFO.task_done()
+            self.fifo.put('a: {} | b: {}'.format(a, i))
+
+            sleep(0.2)
 
 
 filler = Fill()
@@ -29,9 +29,9 @@ sleep(0.2)
 
 while True:
     try:
-        num = FIFO.get(block=True, timeout=0.5)
-        sleep(0.005)
-        print('{}'.format(num))
+        a = filler.fifo.get(block=True, timeout=0.5)
+
+        print(a)
     except queue.Empty:
         break
 
