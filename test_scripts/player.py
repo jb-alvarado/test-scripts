@@ -32,18 +32,18 @@ while True:
         if not play:
             cmd = [
                 'ffplay',
-                # '-f', 'rawvideo',
-                # '-pixel_format', 'rgb24',
-                # '-video_size', '1024x576',
-                '-f', 's16le',
-                '-ar', '44100',
-                '-ac', '2',
-                '-i', 'pipe:0',
+                '-f', 'rawvideo',
+                '-pixel_format', 'rgb24',
+                '-video_size', '1024x576',
+                # '-f', 's16le',
+                # '-ar', '44100',
+                # '-ac', '2',
+                '-i', 'pipe:0'
                 ]
             play = Popen(cmd, stdin=PIPE)
         try:
-            if frame[1] is not None:
-                play.stdin.write(frame[1].to_bytes())
+            if frame[0] is not None:
+                play.stdin.write(frame[0].to_bytes())
             # sleep(0.04)
             # play.stdin.write(a.to_bytes())
         except IOError as e:
