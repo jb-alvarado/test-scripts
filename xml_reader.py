@@ -18,132 +18,90 @@
 # ------------------------------------------------------------------------------
 
 import re
-from ast import literal_eval
 from os import path
 import xml.etree.ElementTree as ET
 
-import logwriter
 import utils
+from logger import logger
 from settings import playlist
 
 
 # read values from xml playlist
-def iter_src_commands():
-    last_time = None
-    last_mod_time = 0.0
-    source = [None]
-    last = False
-    list_date = utils.get_date(True)
-    dummy_len = 60
+class GetSourceIter:
+    def __init__(self):
+        self.last_time = utils.get_time('full_sec')
+        self.last_mod_time = 0.0
+        self.clip_nodes = None
+        self.first = True
+        self.last = False
+        self.list_date = utils.get_date(True)
+        self.dummy_len = 60
 
-    while True:
-        year, month, day = re.split('-', list_date)
-        xml_path = path.join(playlist.path, year, month, list_date + '.xml')
+        if 0 <= self.last_time < playlist.start * 3600:
+            self.last_time += 86400
 
-        if utils.check_file_exist(xml_path):
-            # check last modification from playlist
-            mod_time = path.getmtime(xml_path)
-            if mod_time > last_mod_time:
-                xml_file = open(xml_path, "r")
-                xml_root = ET.parse(xml_file).getroot()
-                clip_nodes = xml_root.findall('body/video')
-                xml_file.close()
-                last_mod_time = mod_time
-                logwriter.logger.info('open: ' + xml_path)
-                utils.validate_thread(clip_nodes)
-                last_node = clip_nodes[-1]
+    def get_playlist(self, xml_path):
+        # check last modification from playlist
+        mod_time = path.getmtime(xml_path)
+        if mod_time > self.last_mod_time:
+            # open and parse xml playlist
+            xml_file = open(xml_path, "r")
+            xml_root = ET.parse(xml_file).getroot()
+            self.clip_nodes = xml_root.findall('body/video')
+            xml_file.close()
+            # update modification time
+            self.last_mod_time = mod_time
+            logger.info('open: ' + xml_path)
+            # send nodes to a validation thread to check
+            # if all values are correct
+            utils.validate_thread(self.clip_nodes)
 
-            # when last clip is None or a dummy,
-            # we have to jump to the right place in the playlist
-            first, last_time = utils.check_last_item(source, last_time, last)
+        return self.clip_nodes
 
-            # loop through all clips in playlist
-            for clip_node in clip_nodes:
-                if playlist.map_ext:
-                    _ext = literal_eval(playlist.map_ext)
-                    node_src = clip_node.get('src').replace(
-                        _ext[0], _ext[1])
-                else:
-                    node_src = clip_node.get('src')
+    def __iter__(self):
+        return self
 
-                src = node_src
-                begin = utils.is_float(
-                    clip_node.get('begin'), last_time, True)
-                duration = utils.is_float(
-                    clip_node.get('dur'), dummy_len, True)
-                seek = utils.is_float(clip_node.get('in'), 0, True)
-                out = utils.is_float(clip_node.get('out'), dummy_len, True)
+    def __next__(self):
+        while True:
+            # get playlist of this day
+            year, month, day = re.split('-', self.list_date)
+            xml_path = path.join(
+                playlist.path, year, month, self.list_date + '.xml')
 
-                # first time we end up here
-                if first and last_time < begin + duration:
-                    # calculate seek time
-                    seek = last_time - begin + seek
-                    source, time_left = utils.gen_input(
-                        src, begin, duration, seek, out, False
-                    )
+            if utils.check_file_exist(xml_path):
+                clip_nodes = self.get_playlist(xml_path)
 
-                    first = False
-                    last_time = begin
-                    break
-                elif last_time < begin:
-                    if clip_node == last_node:
-                        last = True
-                    else:
-                        last = False
+                # loop through all clips in playlist
+                for node in clip_nodes:
+                    # get all necessary values
+                    # is_float: check if variable is filled,
+                    # when not replace it with a given value
+                    source = utils.get_source(node.get('src'))
+                    begin = utils.is_float(
+                        node.get('begin'), self.last_time, True)
+                    dur = utils.is_float(node.get('dur'), self.dummy_len, True)
+                    seek = utils.is_float(node.get('in'), 0, True)
+                    out = utils.is_float(node.get('out'), self.dummy_len, True)
 
-                    source, time_left = utils.gen_input(
-                        src, begin, duration, seek, out, last
-                    )
+                    # first time we end up here
+                    if self.first and self.last_time < begin + out - seek:
+                        # calculate seek time
+                        seek = self.last_time - begin + seek
 
-                    if time_left is None:
-                        # normal behavior
-                        last_time = begin
-                    elif time_left > 0.0:
-                        # when playlist is finish and we have time left
-                        last_time = begin
-                        list_date = utils.get_date(False)
-                        dummy_len = time_left
+                        self.first = False
+                        self.last_time = begin
+                        break
 
-                    else:
-                        # when there is no time left and we are in time,
-                        # set right values for new playlist
-                        list_date = utils.get_date(False)
-                        last_time = float(playlist.start * 3600 - 5)
-                        last_mod_time = 0.0
+                    elif self.last_time < begin:
+                        seek = 0
+                        break
 
-                    break
-            else:
-                # when playlist exist but is empty, or not long enough,
-                # generate dummy and send log
-                source, last_time, first = utils.exeption(
-                    'Playlist is not valid!', dummy_len, xml_path, last
-                )
-
-                begin = utils.get_time('full_sec')
-                last = False
-                dummy_len = 60
-                last_mod_time = 0.0
-
-        else:
-            # when we have no playlist for the current day,
-            # then we generate a black clip
-            # and calculate the seek in time, for when the playlist comes back
-            source, last_time, first = utils.exeption(
-                'Playlist not exist:', dummy_len, xml_path, last
-            )
-
-            begin = utils.get_time('full_sec')
-            last = False
-            dummy_len = 60
-            last_mod_time = 0.0
-
-        if source is not None:
-            yield source, begin
+            return source, begin, dur, seek, out
 
 
 if __name__ == '__main__':
     from time import sleep
 
-    for source, begin in iter_src_commands():
-        print(begin, source)
-        sleep(5)
+    for source, begin, dur, seek, out in GetSourceIter():
+        print(begin, dur, seek, out, source)
+        sleep(3)
