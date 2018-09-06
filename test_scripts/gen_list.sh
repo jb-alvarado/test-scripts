@@ -1,3 +1,5 @@
+#!/bin/bash
+
 src="../test_clips"
 
 listDate=$(date +%Y-%m-%d)
@@ -25,6 +27,6 @@ while read -r line; do
 	# add start time
 	listStart="$( awk -v lS="$listStart" -v cD="$clipDuration" 'BEGIN{ print lS + cD }' )"
 
-done < <( find "$src" -name "*.mp4" | shuf -r -n 1000 )
+done < <( find "$src" -name "*.mp4" | shuf -r -n 6000 )
 
 printf "\t</body>\n</playlist>\n" >> "$playlist"
