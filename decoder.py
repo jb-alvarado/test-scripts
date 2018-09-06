@@ -15,6 +15,7 @@
 
 # ------------------------------------------------------------------------------
 
+from PIL import Image
 from queue import Queue
 from threading import Thread
 
@@ -34,34 +35,45 @@ class Decode(Thread):
         # it must hold the content while the loop runs over the input files
         self.fifo = Queue(maxsize=100)
 
+    def demultiplexer(self, container):
+        # resample audio line to the given format
+        resampler = av.AudioResampler(
+            format=av.AudioFormat('s16'),
+            layout=2,
+            rate=self.audio_rate,
+        )
+
+        # loop over the container
+        for packet in container.demux():
+            type = packet.stream.type
+            orig_fps = packet.stream.rate
+
+            for frame in packet.decode():
+                # current time in video clip
+                timestamp = float(frame.pts * packet.stream.time_base)
+
+                video_frame = None
+                audio_frame = None
+
+                if type == 'video':
+                    frame.pts = None
+                    new_v_frame = frame.reformat(self.w, self.h, 'rgb24')
+                    video_frame = new_v_frame.planes[0]
+
+                if type == 'audio':
+                    frame.pts = None
+                    new_a_frame = resampler.resample(frame)
+                    audio_frame = new_a_frame.planes[0]
+
+                # push to fifo buffer
+                self.fifo.put([video_frame, audio_frame])
+
     def run(self):
         for input in self.input:
-            container = av.open(input, 'r')
+            if input is not None:
+                container = av.open(input, 'r')
 
-            # resample audio line to the given format
-            resampler = av.AudioResampler(
-                format=av.AudioFormat('s16'),
-                layout=2,
-                rate=self.audio_rate,
-            )
-
-            # loop over the container
-            for packet in container.demux():
-                type = packet.stream.type
-
-                for frame in packet.decode():
-                    video_frame = None
-                    audio_frame = None
-
-                    if type == 'video':
-                        frame.pts = None
-                        new_v_frame = frame.reformat(self.w, self.h, 'rgb24')
-                        video_frame = new_v_frame.planes[0]
-
-                    if type == 'audio':
-                        frame.pts = None
-                        new_a_frame = resampler.resample(frame)
-                        audio_frame = new_a_frame.planes[0]
-
-                    # push to fifo buffer
-                    self.fifo.put([video_frame, audio_frame])
+                self.demultiplexer(container)
+            else:
+                black = (0, 0, 0)
+                img = Image.new('RGB', [self.w,self.h], black)
