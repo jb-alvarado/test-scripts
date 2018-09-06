@@ -14,6 +14,7 @@ from decoder import Decode
 
 decode = Decode(
     ['test_clips/test.mp4',
+     None,
      'test_clips/waves.mp4',
      'test_clips/water.mp4',
      'test_clips/test.mp4'
