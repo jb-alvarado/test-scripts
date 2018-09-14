@@ -30,6 +30,7 @@ class Decode(Thread):
         self.w = width
         self.h = height
         self.audio_rate = audio_rate
+        self.new_vid_pts = 0
 
         # set global fifo buffer
         # it must hold the content while the loop runs over the input files
@@ -46,27 +47,32 @@ class Decode(Thread):
         # loop over the container
         for packet in container.demux():
             type = packet.stream.type
-            orig_fps = packet.stream.rate
+            # orig_fps = packet.stream.rate
 
             for frame in packet.decode():
                 # current time in video clip
-                timestamp = float(frame.pts * packet.stream.time_base)
+                # timestamp = float(frame.pts * packet.stream.time_base)
 
                 video_frame = None
                 audio_frame = None
 
                 if type == 'video':
-                    frame.pts = None
-                    new_v_frame = frame.reformat(self.w, self.h, 'rgb24')
-                    video_frame = new_v_frame.planes[0]
+                    # print('video pts: {}'.format(frame.pts))
+                    frame.pts = self.new_vid_pts
+                    new_v_frame = frame.reformat(self.w, self.h, 'yuv420p')
+                    video_frame = new_v_frame
+
+                    self.new_vid_pts += 512
 
                 if type == 'audio':
+                    # print('audio pts: {}'.format(frame.pts))
                     frame.pts = None
                     new_a_frame = resampler.resample(frame)
-                    audio_frame = new_a_frame.planes[0]
+                    audio_frame = new_a_frame
 
                 # push to fifo buffer
                 self.fifo.put([video_frame, audio_frame])
+                # self.last_pts += last_vid_pts
 
     def run(self):
         for input in self.input:
@@ -76,4 +82,4 @@ class Decode(Thread):
                 self.demultiplexer(container)
             else:
                 black = (0, 0, 0)
-                img = Image.new('RGB', [self.w,self.h], black)
+                img = Image.new('RGB', [self.w, self.h], black)
