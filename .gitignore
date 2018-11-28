@@ -106,3 +106,4 @@ venv.bak/
 tmp/
 *.log*
 url.txt
+.DS_Store
